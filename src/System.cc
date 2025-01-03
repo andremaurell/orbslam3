@@ -32,6 +32,10 @@
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/xml_iarchive.hpp>
 #include <boost/archive/xml_oarchive.hpp>
+#include <ros/ros.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <functional>
+
 
 namespace ORB_SLAM3
 {
@@ -43,6 +47,20 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     mSensor(sensor), mpViewer(static_cast<Viewer*>(NULL)), mbReset(false), mbResetActiveMap(false),
     mbActivateLocalizationMode(false), mbDeactivateLocalizationMode(false), mbShutDown(false)
 {
+    // Verificar se o ROS foi inicializado
+    if (!ros::isInitialized()) {
+        int argc = 0;
+        char **argv = nullptr;
+        ros::init(argc, argv, "orbslam3_core");
+    }
+
+    // Criar um NodeHandle
+    ros::NodeHandle nh;
+
+    // Criar o Subscriber
+    mPoseSubscriber = nh.subscribe<geometry_msgs::PoseStamped>(
+        "/orbslam3/camera_pose", 10, &ORB_SLAM3::System::PoseCallback, this);
+
     // Output welcome message
     cout << endl <<
     "ORB-SLAM3 Copyright (C) 2017-2020 Carlos Campos, Richard Elvira, Juan J. Gómez, José M.M. Montiel and Juan D. Tardós, University of Zaragoza." << endl <<
@@ -1543,6 +1561,19 @@ string System::CalculateCheckSum(string filename, int type)
     }
 
     return checksum;
+}
+
+Sophus::SE3f g_aruco_pose;
+std::mutex g_pose_mutex;
+
+void ArUcoPoseCallback(const geometry_msgs::PoseStamped::ConstPtr &msg) {
+    std::lock_guard<std::mutex> lock(g_pose_mutex);
+
+    Eigen::Vector3f translation(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
+    Eigen::Quaternionf rotation(msg->pose.orientation.w, msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z);
+    g_aruco_pose = Sophus::SE3f(rotation, translation);
+
+    ROS_INFO("Aruco Pose Updated: [%.3f, %.3f, %.3f]", translation.x(), translation.y(), translation.z());
 }
 
 } //namespace ORB_SLAM
